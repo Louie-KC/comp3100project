@@ -29,11 +29,13 @@ public class Client {
             inStream = new DataInputStream(socket.getInputStream());
             outStream = new DataOutputStream(socket.getOutputStream());
             greetDS(inStream, outStream);
-            outStream.write(("REDY").getBytes("UTF-8"));
+            sendMessage("REDY", outStream);  // Step 5
+            String job1 = getInMsgString(inStream);
+            System.out.println(job1);
+            sendMessage("GETS", outStream);  // Needs more data to be sent
             System.out.println(getInMsgString(inStream));
-            outStream.write(("GETS").getBytes("UTF-8"));
-            System.out.println(getInMsgString(inStream));
-            outStream.write(("QUIT").getBytes("UTF-8"));
+            System.out.println("Sending: QUIT");
+            sendMessage("QUIT", outStream);
             System.out.println(getInMsgString(inStream));
         } catch (UnknownHostException e) {
             System.err.println("Socket: Unknown host " + e.getMessage());
@@ -56,15 +58,11 @@ public class Client {
      * @param inOutputStream
      */
     private static void greetDS(DataInputStream inputStream, DataOutputStream outputStream) {
-        try {
-            outputStream.write(("HELO").getBytes("UTF-8"));
-            System.out.println(getInMsgString(inputStream));
-            outputStream.write(("AUTHlouie").getBytes("UTF-8"));
-            System.out.println(getInMsgString(inputStream));
-            System.out.println("DS-Sim greet successful.");
-        } catch (IOException e) {
-            System.err.println("greetDS: " + e.getMessage());
-        }
+        sendMessage("HELO", outputStream);  // Step 1
+        if (!checkInMessage("OK", inputStream)) { return; }  // Step 2
+        sendMessage("AUTHlouie", outputStream);  // Step 3
+        if (!checkInMessage("OK", inputStream)) { return; }  // Step 4
+        System.out.println("DS-Sim greet successful.");
     }
 
     /**
@@ -74,10 +72,43 @@ public class Client {
      * @return Message sent by ds-server as String
      * @throws IOException
      */
-    private static String getInMsgString(DataInputStream inputStream) throws IOException {
+    private static String getInMsgString(DataInputStream inputStream) {
         byte[] readBuffer = new byte[128];
-        inputStream.read(readBuffer);
-        String output = new String(readBuffer);
-        return output;
+        try {
+            inputStream.read(readBuffer);
+        } catch (Exception e) {
+            System.err.println("getInMsgString IOException: could not read stream into buffer");
+            return "";
+        }
+        return new String(readBuffer).trim();
     }
-}
+
+    /**
+     * Check for server response when response is known, such as in the initial greet sequence
+     * where server should respond "OK".
+     * @param expectedString
+     * @param inputStream
+     * @return True if received message is as expected, false otherwise.
+     */
+    private static Boolean checkInMessage(String expectedString, DataInputStream inputStream) {
+        String received = getInMsgString(inputStream);
+        if (received.equals(expectedString)) { return true; }
+        System.err.println("checkInMessage: got '"+received+"' expected '"+expectedString+"'.");
+        System.out.println("received length: " + received.length());
+        return false;
+    }
+
+    /**
+     * Send message String via DataOutputStream paramater, handles conversion of String to bytes
+     * without any terminating characters to match ds-server sim expectation.
+     * @param msgToSend
+     * @param outputStream
+     */
+    private static void sendMessage(String msgToSend, DataOutputStream outputStream) {
+        try {
+            outputStream.write((msgToSend).getBytes("UTF-8"));
+        } catch (IOException e) {
+            System.err.println("sendMessage: IOException - " + e.getMessage());
+        }
+    }
+} 
