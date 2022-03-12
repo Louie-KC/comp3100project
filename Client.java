@@ -29,14 +29,28 @@ public class Client {
             inStream = new DataInputStream(socket.getInputStream());
             outStream = new DataOutputStream(socket.getOutputStream());
             greetDS(inStream, outStream);
+
+            // One/test round
             sendMessage("REDY", outStream);  // Step 5
-            String job1 = getInMsgString(inStream);
-            System.out.println(job1);
-            sendMessage("GETS", outStream);  // Needs more data to be sent
-            System.out.println(getInMsgString(inStream));
-            System.out.println("Sending: QUIT");
+            String job1 = getInMsgString(inStream);  // Step 6, receiving job details
+            sendMessage("GETSCapable" + job1.substring(13), outStream);  // Step 7, getting capable systems
+            getInMsgString(inStream);  // Step 8, getting DATA/preparation message
+            sendMessage("OK", outStream);  // Step 9, Sending OK for DATA we got preparation msg for in s8.
+            String resourceInfo = getInMsgString(inStream);  // Step 10, in this case receive resource information
+            sendMessage("OK", outStream);  // Step 11, send OK and go back to step 10
+            getInMsgString(inStream);  // Step 10 again, get "." i.e. no more info return to step 7.
+            sendMessage("SCHD0  "+resourceInfo.substring(0, 6), outStream);  // Step 7: Schedule first job (idx 0) to first resource in received resource info.
+            // sendMessage("SCHD0  super-silk 0", outStream);  // Hard coded just to see it go on a non joon server, it did.
+
+            checkInMessage("OK", inStream);  // Step 8: Check for OK scheduling confirmation from server.
+            // Unsure of what step I am in below here, believe I should be at step 9 however
+            // Am not receiving any data from the server.
+            sendMessage("OK", outStream);  // Step 9: OK to get DS-server info/data (hopefully about jobs on server)
+            getInMsgString(inStream);  // Step 10: hopefully info about jobs on server
+
+            // Gracefully close connection
             sendMessage("QUIT", outStream);
-            System.out.println(getInMsgString(inStream));
+            getInMsgString(inStream);
         } catch (UnknownHostException e) {
             System.err.println("Socket: Unknown host " + e.getMessage());
         } catch (IOException e) {
@@ -80,8 +94,14 @@ public class Client {
             System.err.println("getInMsgString IOException: could not read stream into buffer");
             return "";
         }
-        return new String(readBuffer).trim();
+        String output = new String(readBuffer).trim();
+        System.out.println("Received: " + output);
+        return output;
     }
+
+    // private static String removeAllWhiteSpace(String input) {
+        
+    // }
 
     /**
      * Check for server response when response is known, such as in the initial greet sequence
@@ -107,6 +127,7 @@ public class Client {
     private static void sendMessage(String msgToSend, DataOutputStream outputStream) {
         try {
             outputStream.write((msgToSend).getBytes("UTF-8"));
+            System.out.println("\nSending: " + msgToSend);
         } catch (IOException e) {
             System.err.println("sendMessage: IOException - " + e.getMessage());
         }
