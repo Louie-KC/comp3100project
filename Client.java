@@ -4,6 +4,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
 
 public class Client {
     static String targetIP;
@@ -31,43 +32,49 @@ public class Client {
             outStream = new DataOutputStream(socket.getOutputStream());
             greetDS(inStream, outStream);
 
-            // One/test round
+            // Very rough dispatching to highest available CPU core resource.
             sendMessage("REDY", outStream);  // Step 5
-            String job1 = getInMsgString(inStream);  // Step 6, receiving job details
-            sendMessage("GETSCapable" + job1.substring(13), outStream);  // Step 7, getting capable systems
-            getInMsgString(inStream);  // Step 8, getting DATA/preparation message
-            sendMessage("OK", outStream);  // Step 9, Sending OK for DATA we got preparation msg for in s8.
-            String[] resources = parseCapability(getInMsgString(inStream));  // Step 10, in this case receive resource information
-            ArrayList<ServerResource> topCPU = getTopCPUList(resources);
-            sendMessage("OK", outStream);  // Step 11, send OK and go back to step 10
-            getInMsgString(inStream);  // Step 10 again, get "." i.e. no more info return to step 7.
-            sendMessage("SCHD0  "+topCPU.get(0).getName(), outStream);  // Step 7: Schedule first job (idx 0) to first resource in received resource info.
+            String step6 = readMessage(inStream);  // Step 6
+            List<Job> jobList = new ArrayList<>();
+            int curJob = 0;
+            while (!step6.equals("NONE")) {
+                if (step6.substring(0, 4).equals("JOBN")) {  // Handle JOBN
+                    jobList.add(new Job(step6));
+                    sendMessage("GETSCapable " + jobList.get(curJob).getCapableString(), outStream);
+                    readMessage(inStream);  // Data preparation message, currently useless
+                    sendMessage("OK", outStream);
+                    ArrayList<String> resources2 = new ArrayList<>();
+                    String resourceString = "";
+                    String inResource = readMessage(inStream);
+                    while (!inResource.equals(".") & inResource.length() > 2) {
+                        if (resourceString.length() > 2) {
+                            if (resourceString.charAt(resourceString.length()-1) != ' ') {
+                                resourceString += " ";
+                            }
+                        }
+                        resourceString += inResource;
+                        sendMessage("OK", outStream);  // Request new set of resources, or "."
+                        inResource = readMessage(inStream);
+                    }
+                    System.out.println("!! Parsing resources !!");
+                    for (String res : parseCapability(resourceString)) {
+                        System.out.println("Parsing one: " + res);
+                        resources2.add(res);
+                    }
+                    ServerResource topCore = getTopCPU(resources2);
+                    sendMessage("SCHD" + jobList.get(curJob).getJobID() + " " + topCore.getName(), outStream);
+                    if (!checkInMessage("OK", inStream)) { break; }
 
-            checkInMessage("OK", inStream);  // Step 8: Check for OK scheduling confirmation from server.
-            // Unsure of what step I am in below here, believe I should be at step 9 however
-            // Am not receiving any data from the server.
-            sendMessage("OK", outStream);  // Step 9: OK to get DS-server info/data (hopefully about jobs on server)
-            getInMsgString(inStream);  // Step 10: hopefully info about jobs on server
-
-            // -------------------------------------------------------------------------- //
-
-
-            // sendMessage("REDY", outStream);
-            // String step6 = getInMsgString(inStream);
-            // while (step6 != "NONE") {
-            //     if (step6.substring(0, 4).equals("JOBN")) {
-
-                    
-            //     }
-                
-            //     // Need to ensure return to step 5 from step 8 
-            //     sendMessage("REDY", outStream);
-            //     step6 = getInMsgString(inStream);
-            // }
+                    // Request new job and start again
+                    curJob++;
+                    sendMessage("REDY", outStream);
+                    step6 = readMessage(inStream);
+                }
+            }
 
             // Gracefully close connection
             sendMessage("QUIT", outStream);
-            getInMsgString(inStream);
+            readMessage(inStream);
         } catch (UnknownHostException e) {
             System.err.println("Socket: Unknown host " + e.getMessage());
         } catch (IOException e) {
@@ -103,7 +110,7 @@ public class Client {
      * @return Message sent by ds-server as String
      * @throws IOException
      */
-    private static String getInMsgString(DataInputStream inputStream) {
+    private static String readMessage(DataInputStream inputStream) {
         byte[] readBuffer = new byte[128];
         try {
             inputStream.read(readBuffer);
@@ -124,7 +131,7 @@ public class Client {
      * @return True if received message is as expected, false otherwise.
      */
     private static Boolean checkInMessage(String expectedString, DataInputStream inputStream) {
-        String received = getInMsgString(inputStream);
+        String received = readMessage(inputStream);
         if (received.equals(expectedString)) { return true; }
         System.err.println("checkInMessage: got '"+received+"' expected '"+expectedString+"'.");
         System.out.println("received length: " + received.length());
@@ -167,23 +174,22 @@ public class Client {
     }
 
     /**
-     * Provides list of server resources with highest CPU core count.
+     * Returns the ServerResource with highest available CPU core count. If two or more have
+     * the same highest CPU core count, return one which will lower the available cores for
+     * next time the function is called.
      * @param inResources
-     * @return ArrList of resources with highest CPU core count.
+     * @return ServerResource with highest available core count
      */
-    private static ArrayList<ServerResource> getTopCPUList(String[] inResources) {
-        ArrayList<ServerResource> resources = new ArrayList<>();
-        int topCoreCount = 0;
-        for (String s : inResources) {
-            ServerResource sr = new ServerResource(s);
-            if (sr.getCoreCount() > topCoreCount) { topCoreCount = sr.getCoreCount(); }
-            resources.add(sr);
+    private static ServerResource getTopCPU(ArrayList<String> inResources) {
+        if (inResources == null | inResources.size() == 0) { return null; }
+        ServerResource topSR = new ServerResource(inResources.get(0));
+        for (int i = 1; i < inResources.size(); i++) {
+            ServerResource temp = new ServerResource(inResources.get(i));
+            if (temp.getCoreCount() > topSR.getCoreCount()) {
+                topSR = temp;
+            }
         }
-        ArrayList<ServerResource> topCPU = new ArrayList<>();
-        for (ServerResource sr : resources) {
-            if (sr.getCoreCount() == topCoreCount) { topCPU.add(sr); }
-        }
-        return topCPU;
+        return topSR;
     }
 
 } 
