@@ -36,11 +36,11 @@ public class Client {
             sendMessage("REDY", outStream);  // Step 5
             String step6 = readMessage(inStream);  // Step 6
             List<Job> jobList = new ArrayList<>();
-            int curJob = 0;
+            int numJobs = 0;
             while (!step6.equals("NONE")) {
                 if (step6.substring(0, 4).equals("JOBN")) {  // Handle JOBN
                     jobList.add(new Job(step6));
-                    sendMessage("GETSCapable " + jobList.get(curJob).getCapableString(), outStream);
+                    sendMessage("GETSCapable " + jobList.get(numJobs).getCapableString(), outStream);
                     readMessage(inStream);  // Data preparation message, currently useless
                     sendMessage("OK", outStream);
                     ArrayList<String> resources2 = new ArrayList<>();
@@ -62,14 +62,17 @@ public class Client {
                         resources2.add(res);
                     }
                     ServerResource topCore = getTopCPU(resources2);
-                    sendMessage("SCHD" + jobList.get(curJob).getJobID() + " " + topCore.getName(), outStream);
+                    sendMessage("SCHD" + jobList.get(numJobs).getJobID() + " " + topCore.getName(), outStream);
                     if (!checkInMessage("OK", inStream)) { break; }
 
-                    // Request new job and start again
-                    curJob++;
-                    sendMessage("REDY", outStream);
-                    step6 = readMessage(inStream);
+                    numJobs++;
                 }
+                if (step6.substring(0, 4).equals("JCPL")) {
+                    System.out.println("Job completed: " + step6);
+                }
+                // Request new job/server update and start again
+                sendMessage("REDY", outStream);
+                step6 = readMessage(inStream);
             }
 
             // Gracefully close connection
