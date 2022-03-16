@@ -28,6 +28,7 @@ public class Client {
         }
         try {
             socket = new Socket(targetIP, targetPort);
+            // socket.setSoTimeout(5);
             inStream = new DataInputStream(socket.getInputStream());
             outStream = new DataOutputStream(socket.getOutputStream());
             greetDS(inStream, outStream);
@@ -41,28 +42,24 @@ public class Client {
                 if (step6.substring(0, 4).equals("JOBN")) {  // Handle JOBN
                     jobList.add(new Job(step6));
                     sendMessage("GETSCapable " + jobList.get(numJobs).getCapableString(), outStream);
-                    readMessage(inStream);  // Data preparation message, currently useless
+                    String[] dataPrep = readMessage(inStream).split(" ");  // Data preparation: DATA nRecs recLen
                     sendMessage("OK", outStream);
-                    ArrayList<String> resources2 = new ArrayList<>();
-                    String resourceString = "";
-                    String inResource = readMessage(inStream);
-                    while (!inResource.equals(".") & inResource.length() > 2) {
-                        if (resourceString.length() > 2) {
-                            if (resourceString.charAt(resourceString.length()-1) != ' ') {
-                                resourceString += " ";
-                            }
-                        }
-                        resourceString += inResource;
-                        sendMessage("OK", outStream);  // Request new set of resources, or "."
-                        inResource = readMessage(inStream);
+                    ArrayList<String> resources = new ArrayList<>();
+                    String resourceString = readMessage(inStream, Integer.valueOf(dataPrep[1]) * Integer.valueOf(dataPrep[2]));
+                    System.out.println("ResourceString length: " + resourceString.length());
+                    if (resourceString.equals(".")) { break; }
+                    sendMessage("OK", outStream);
+                    if (!checkInMessage(".", inStream)) {
+                        System.err.println("Did not get '.' after resources");
+                        break;
                     }
                     System.out.println("!! Parsing resources !!");
                     for (String res : parseCapability(resourceString)) {
-                        System.out.println("Parsing one: " + res);
-                        resources2.add(res);
+                        // System.out.println("Parsing one: " + res);
+                        resources.add(res);
                     }
-                    ServerResource topCore = getTopCPU(resources2);
-                    sendMessage("SCHD" + jobList.get(numJobs).getJobID() + " " + topCore.getName(), outStream);
+                    ServerResource topCore = getTopCPU(resources);
+                    sendMessage("SCHD " + jobList.get(numJobs).getJobID() + " " + topCore.getName(), outStream);
                     if (!checkInMessage("OK", inStream)) { break; }
 
                     numJobs++;
@@ -101,9 +98,22 @@ public class Client {
     private static void greetDS(DataInputStream inputStream, DataOutputStream outputStream) {
         sendMessage("HELO", outputStream);  // Step 1
         if (!checkInMessage("OK", inputStream)) { return; }  // Step 2
-        sendMessage("AUTHlouie", outputStream);  // Step 3
+        sendMessage("AUTH " + System.getProperty("user.name"), outputStream);  // Step 3
         if (!checkInMessage("OK", inputStream)) { return; }  // Step 4
         System.out.println("DS-Sim greet successful.");
+    }
+
+    /**
+     * Proxy method:
+     * Reads string from input stream. Necessary as DS-Sim ds-server does not add a null 
+     * terminating character nor an EOT character expected by DataInputStream.
+     * Buffer length of 128 bytes.
+     * @param inputStream
+     * @return Message sent by ds-server as String
+     * @throws IOException
+     */
+    private static String readMessage(DataInputStream inputStream) {
+        return readMessage(inputStream, 128);
     }
 
     /**
@@ -113,12 +123,22 @@ public class Client {
      * @return Message sent by ds-server as String
      * @throws IOException
      */
-    private static String readMessage(DataInputStream inputStream) {
-        byte[] readBuffer = new byte[128];
+    private static String readMessage(DataInputStream inputStream, int bufferSize) {
+        if (inputStream == null) {
+            throw new IllegalArgumentException("DataInputStream is null");
+        }
+        if (bufferSize < 0) {
+            throw new IllegalArgumentException("Buffer size must not be negative: " + bufferSize);
+        }
+        byte[] readBuffer = new byte[bufferSize];
+        System.out.println("Receiving buffer size: " + readBuffer.length);
+        // Currently inconsistent with large (over 10k bytes or so) reading.
+        // w/ sample-config 3, sometimes breaks at job 300, sometimes at job 700, and
+        // everywhere in between.
         try {
             inputStream.read(readBuffer);
         } catch (Exception e) {
-            System.err.println("getInMsgString IOException: could not read stream into buffer");
+            System.err.println("readMessage IOException: could not read stream into buffer");
             return "";
         }
         String output = new String(readBuffer).trim();
@@ -136,7 +156,7 @@ public class Client {
     private static Boolean checkInMessage(String expectedString, DataInputStream inputStream) {
         String received = readMessage(inputStream);
         if (received.equals(expectedString)) { return true; }
-        System.err.println("checkInMessage: got '"+received+"' expected '"+expectedString+"'.");
+        System.err.println("checkInMessage: expected '" + expectedString + "'");
         System.out.println("received length: " + received.length());
         return false;
     }
@@ -162,18 +182,7 @@ public class Client {
      * @return String array of server capabilities/resources.
      */
     private static String[] parseCapability(String capableResponse) {
-        // String[] capable = capableResponse.split("\\R");
-        // System.out.println("parseCapabiltiy: Printing split string.");
-        // for (String s : capable) { System.out.println(s); }
-        // return capable;
         return capableResponse.split("\\R");
-
-        /**
-         * Reference response to parse:
-         * joon 0 inactive -1 4 16000 64000 0 0
-         * joon 1 inactive -1 4 16000 64000 0 0
-         * super-silk 0 inactive -1 16 64000 512000 0 0
-         */
     }
 
     /**
@@ -194,5 +203,4 @@ public class Client {
         }
         return topSR;
     }
-
 } 
