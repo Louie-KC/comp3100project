@@ -1,8 +1,9 @@
 import java.net.Socket;
 import java.net.UnknownHostException;
-import java.io.DataInputStream;
+import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -12,7 +13,7 @@ public class Client {
 
     public static void main(String[] args) {
         Socket socket = null;
-        DataInputStream inStream = null;
+        BufferedReader buffReader = null;
         DataOutputStream outStream = null;
         switch (args.length) {
             case 2:
@@ -28,53 +29,49 @@ public class Client {
         }
         try {
             socket = new Socket(targetIP, targetPort);
-            // socket.setSoTimeout(5);
-            inStream = new DataInputStream(socket.getInputStream());
+            buffReader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             outStream = new DataOutputStream(socket.getOutputStream());
-            greetDS(inStream, outStream);
+            greetDS(buffReader, outStream);
 
             // Very rough dispatching to highest available CPU core resource.
             sendMessage("REDY", outStream);  // Step 5
-            String step6 = readMessage(inStream);  // Step 6
+            String step6 = readMessage(buffReader);  // Step 6
             List<Job> jobList = new ArrayList<>();
             int numJobs = 0;
             while (!step6.equals("NONE")) {
                 if (step6.substring(0, 4).equals("JOBN")) {  // Handle JOBN
                     jobList.add(new Job(step6));
                     sendMessage("GETSCapable " + jobList.get(numJobs).getCapableString(), outStream);
-                    String[] dataPrep = readMessage(inStream).split(" ");  // Data preparation: DATA nRecs recLen
+                    // Data preparation: DATA nRecs recLen
+                    String[] dataPrep = readMessage(buffReader).split(" ");
                     sendMessage("OK", outStream);
                     ArrayList<String> resources = new ArrayList<>();
-                    String resourceString = readMessage(inStream, Integer.valueOf(dataPrep[1]) * Integer.valueOf(dataPrep[2]));
-                    System.out.println("ResourceString length: " + resourceString.length());
-                    if (resourceString.equals(".")) { break; }
+                    for (int i = 0; i < Integer.valueOf(dataPrep[1]); i++) {
+                        resources.add(readMessage(buffReader));
+                    }
                     sendMessage("OK", outStream);
-                    if (!checkInMessage(".", inStream)) {
+                    if (!checkInMessage(".", buffReader)) {
                         System.err.println("Did not get '.' after resources");
                         break;
                     }
-                    System.out.println("!! Parsing resources !!");
-                    for (String res : parseCapability(resourceString)) {
-                        // System.out.println("Parsing one: " + res);
-                        resources.add(res);
-                    }
                     ServerResource topCore = getTopCPU(resources);
                     sendMessage("SCHD " + jobList.get(numJobs).getJobID() + " " + topCore.getName(), outStream);
-                    if (!checkInMessage("OK", inStream)) { break; }
+                    if (!checkInMessage("OK", buffReader)) { break; }
 
                     numJobs++;
                 }
-                if (step6.substring(0, 4).equals("JCPL")) {
+                if (step6.substring(0, 4).equals("JCPL")) {  // Handle JCPL, currently do nothing
                     System.out.println("Job completed: " + step6);
                 }
                 // Request new job/server update and start again
                 sendMessage("REDY", outStream);
-                step6 = readMessage(inStream);
+                // step6 = readMessage(inStream);
+                step6 = readMessage(buffReader);
             }
 
             // Gracefully close connection
             sendMessage("QUIT", outStream);
-            readMessage(inStream);
+            readMessage(buffReader);
         } catch (UnknownHostException e) {
             System.err.println("Socket: Unknown host " + e.getMessage());
         } catch (IOException e) {
@@ -95,7 +92,7 @@ public class Client {
      * @param inInputStream
      * @param inOutputStream
      */
-    private static void greetDS(DataInputStream inputStream, DataOutputStream outputStream) {
+    private static void greetDS(BufferedReader inputStream, DataOutputStream outputStream) {
         sendMessage("HELO", outputStream);  // Step 1
         if (!checkInMessage("OK", inputStream)) { return; }  // Step 2
         sendMessage("AUTH " + System.getProperty("user.name"), outputStream);  // Step 3
@@ -104,46 +101,26 @@ public class Client {
     }
 
     /**
-     * Proxy method:
      * Reads string from input stream. Necessary as DS-Sim ds-server does not add a null 
      * terminating character nor an EOT character expected by DataInputStream.
-     * Buffer length of 128 bytes.
+     * <p>
+     * Expects "\n" at the end of each line. Launch ds-server with option -n.
      * @param inputStream
      * @return Message sent by ds-server as String
      * @throws IOException
      */
-    private static String readMessage(DataInputStream inputStream) {
-        return readMessage(inputStream, 128);
-    }
-
-    /**
-     * Reads string from input stream. Necessary as DS-Sim ds-server does not add a null 
-     * terminating character nor an EOT character expected by DataInputStream.
-     * @param inputStream
-     * @return Message sent by ds-server as String
-     * @throws IOException
-     */
-    private static String readMessage(DataInputStream inputStream, int bufferSize) {
+    private static String readMessage(BufferedReader inputStream) {
         if (inputStream == null) {
             throw new IllegalArgumentException("DataInputStream is null");
         }
-        if (bufferSize < 0) {
-            throw new IllegalArgumentException("Buffer size must not be negative: " + bufferSize);
-        }
-        byte[] readBuffer = new byte[bufferSize];
-        System.out.println("Receiving buffer size: " + readBuffer.length);
-        // Currently inconsistent with large (over 10k bytes or so) reading.
-        // w/ sample-config 3, sometimes breaks at job 300, sometimes at job 700, and
-        // everywhere in between.
         try {
-            inputStream.read(readBuffer);
+            String received = inputStream.readLine();
+            System.out.println("Received: " + received);
+            return received;
         } catch (Exception e) {
             System.err.println("readMessage IOException: could not read stream into buffer");
             return "";
         }
-        String output = new String(readBuffer).trim();
-        System.out.println("Received: " + output);
-        return output;
     }
 
     /**
@@ -153,7 +130,7 @@ public class Client {
      * @param inputStream
      * @return True if received message is as expected, false otherwise.
      */
-    private static Boolean checkInMessage(String expectedString, DataInputStream inputStream) {
+    private static Boolean checkInMessage(String expectedString, BufferedReader inputStream) {
         String received = readMessage(inputStream);
         if (received.equals(expectedString)) { return true; }
         System.err.println("checkInMessage: expected '" + expectedString + "'");
@@ -164,25 +141,19 @@ public class Client {
     /**
      * Send message String via DataOutputStream paramater, handles conversion of String to bytes
      * without any terminating characters to match ds-server sim expectation.
+     * <p>
+     * Adds \n to end of message to indicate end of line.
      * @param msgToSend
      * @param outputStream
      */
     private static void sendMessage(String msgToSend, DataOutputStream outputStream) {
         try {
-            outputStream.write((msgToSend).getBytes("UTF-8"));
+            // msgToSend += "\n";
             System.out.println("\nSending: " + msgToSend);
+            outputStream.write((msgToSend + "\n").getBytes("UTF-8"));
         } catch (IOException e) {
             System.err.println("sendMessage: IOException - " + e.getMessage());
         }
-    }
-
-    /**
-     * Parses servers GETSCapable response into an array of resource/capability Strings. 
-     * @param capableResponse
-     * @return String array of server capabilities/resources.
-     */
-    private static String[] parseCapability(String capableResponse) {
-        return capableResponse.split("\\R");
     }
 
     /**
