@@ -33,15 +33,17 @@ public class Client {
             outStream = new DataOutputStream(socket.getOutputStream());
             greetDS(buffReader, outStream);
 
-            // Very rough dispatching to highest available CPU core resource.
+            // Job scheduling
             sendMessage("REDY", outStream);  // Step 5
             String step6 = readMessage(buffReader);  // Step 6
             List<Job> jobList = new ArrayList<>();
             int numJobs = 0;
+            String topCPUType = "";
+            int topCPUTypeCount = 0;
             while (!step6.equals("NONE")) {
                 if (step6.substring(0, 4).equals("JOBN")) {  // Handle JOBN
                     jobList.add(new Job(step6));
-                    sendMessage("GETSCapable " + jobList.get(numJobs).getCapableString(), outStream);
+                    sendMessage("GETS Capable " + jobList.get(numJobs).getCapableString(), outStream);
                     // Data preparation: DATA nRecs recLen
                     String[] dataPrep = readMessage(buffReader).split(" ");
                     sendMessage("OK", outStream);
@@ -54,18 +56,25 @@ public class Client {
                         System.err.println("Did not get '.' after resources");
                         break;
                     }
-                    ServerResource topCore = getTopCPU(resources);
-                    sendMessage("SCHD " + jobList.get(numJobs).getJobID() + " " + topCore.getName(), outStream);
+                    if (topCPUType.isBlank()) {  // Only run on initial run of loop
+                        topCPUType = getTopCPU(resources).getServerType();
+                        for (String resource : resources) {
+                            if (resource.contains(topCPUType)) {
+                                topCPUTypeCount++;
+                            }
+                        }
+                    }
+                    String curResource = topCPUType + " " + numJobs % topCPUTypeCount;
+                    String schdMsg = "SCHD " + jobList.get(numJobs).getJobID()+ " " + curResource;
+                    sendMessage(schdMsg, outStream);
                     if (!checkInMessage("OK", buffReader)) { break; }
-
                     numJobs++;
                 }
-                if (step6.substring(0, 4).equals("JCPL")) {  // Handle JCPL, currently do nothing
+                if (step6.substring(0, 4).equals("JCPL")) {  // Handle JCPL
                     System.out.println("Job completed: " + step6);
                 }
-                // Request new job/server update and start again
+                // Request new job/server update and start loop again
                 sendMessage("REDY", outStream);
-                // step6 = readMessage(inStream);
                 step6 = readMessage(buffReader);
             }
 
@@ -89,8 +98,8 @@ public class Client {
 
     /**
      * Performs initial connection steps outlined in section 6.1 of ds-sim user guide.
-     * @param inInputStream
-     * @param inOutputStream
+     * @param inputStream
+     * @param outputStream
      */
     private static void greetDS(BufferedReader inputStream, DataOutputStream outputStream) {
         sendMessage("HELO", outputStream);  // Step 1
@@ -115,7 +124,7 @@ public class Client {
         }
         try {
             String received = inputStream.readLine();
-            System.out.println("Received: " + received);
+            // System.out.println("Received: " + received);  // Significantly slows down Client
             return received;
         } catch (Exception e) {
             System.err.println("readMessage IOException: could not read stream into buffer");
@@ -148,7 +157,6 @@ public class Client {
      */
     private static void sendMessage(String msgToSend, DataOutputStream outputStream) {
         try {
-            // msgToSend += "\n";
             System.out.println("\nSending: " + msgToSend);
             outputStream.write((msgToSend + "\n").getBytes("UTF-8"));
         } catch (IOException e) {

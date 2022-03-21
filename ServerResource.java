@@ -30,6 +30,10 @@ public class ServerResource {
          */
     }
 
+    public String getServerType() {
+        return type;
+    }
+
     public int getCoreCount() {
         return coreCount;
     }
