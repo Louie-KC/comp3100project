@@ -22,9 +22,12 @@ public class Client {
             case 1:
                 targetIP = args[0];
                 break;
+            case 0:
+                targetIP = "127.0.0.1";
+                break;
             default:  // Close program if too few/many arguments.
                 System.err.println("! Run executable with a target IP and/or target port !");
-                System.out.println("command: java Client <IP> <Port (optional, default: 50000)>");
+                System.out.println("command: java Client <IP (oprtional, default 127.0.0.1)> <Port (optional, default: 50000)>");
                 return;
         }
         try {
@@ -37,13 +40,14 @@ public class Client {
             sendMessage("REDY", outStream);  // Step 5
             String step6 = readMessage(buffReader);  // Step 6
             List<Job> jobList = new ArrayList<>();
+            List<ServerResource> serverList = new ArrayList<>();
             int numJobs = 0;
-            String topCPUType = "";
-            int topCPUTypeCount = 0;
+            // String topCPUType = "";
+            // int topCPUTypeCount = -1;
             while (!step6.equals("NONE")) {
                 if (step6.substring(0, 4).equals("JOBN")) {  // Handle JOBN
                     jobList.add(new Job(step6));
-                    sendMessage("GETS Capable " + jobList.get(numJobs).getCapableString(), outStream);
+                    sendMessage("GETS All " + jobList.get(numJobs).getCapableString(), outStream);
                     // Data preparation: DATA nRecs recLen
                     String[] dataPrep = readMessage(buffReader).split(" ");
                     sendMessage("OK", outStream);
@@ -56,16 +60,21 @@ public class Client {
                         System.err.println("Did not get '.' after resources");
                         break;
                     }
-                    if (topCPUType.isBlank()) {  // Only run on initial run of loop
-                        topCPUType = getTopCPU(resources).getServerType();
-                        for (String resource : resources) {
-                            if (resource.contains(topCPUType)) {
-                                topCPUTypeCount++;
-                            }
-                        }
+                    if (serverList.isEmpty()) {
+                        serverList = getLargestCPUServers(resources);
                     }
-                    String curResource = topCPUType + " " + numJobs % topCPUTypeCount;
-                    String schdMsg = "SCHD " + jobList.get(numJobs).getJobID()+ " " + curResource;
+                    // if (topCPUType.isBlank()) {  // Only run on initial run of loop
+                    //     topCPUType = getTopCPU(resources).getServerType();
+                        // for (String resource : resources) {
+                        //     if (resource.contains(topCPUType)) {
+                        //         topCPUTypeCount++;
+                        //     }
+                        // }
+                    // }
+                    // String curResource = topCPUType + " " + numJobs % topCPUTypeCount;
+                    // String schdMsg = "SCHD " + jobList.get(numJobs).getJobID()+ " " + curResource;
+                    String curResource = serverList.get(numJobs % serverList.size()).getName();
+                    String schdMsg = "SCHD " +jobList.get(numJobs).getJobID() + " " + curResource;
                     sendMessage(schdMsg, outStream);
                     if (!checkInMessage("OK", buffReader)) { break; }
                     numJobs++;
@@ -157,7 +166,7 @@ public class Client {
      */
     private static void sendMessage(String msgToSend, DataOutputStream outputStream) {
         try {
-            System.out.println("\nSending: " + msgToSend);
+            // System.out.println("\nSending: " + msgToSend);
             outputStream.write((msgToSend + "\n").getBytes("UTF-8"));
         } catch (IOException e) {
             System.err.println("sendMessage: IOException - " + e.getMessage());
@@ -171,15 +180,31 @@ public class Client {
      * @param inResources
      * @return ServerResource with highest available core count
      */
-    private static ServerResource getTopCPU(ArrayList<String> inResources) {
-        if (inResources == null | inResources.size() == 0) { return null; }
-        ServerResource topSR = new ServerResource(inResources.get(0));
-        for (int i = 1; i < inResources.size(); i++) {
-            ServerResource temp = new ServerResource(inResources.get(i));
-            if (temp.getCoreCount() > topSR.getCoreCount()) {
-                topSR = temp;
+    // private static ServerResource getTopCPU(ArrayList<String> inResources) {
+    //     if (inResources == null | inResources.size() == 0) { return null; }
+    //     ServerResource topSR = new ServerResource(inResources.get(0));
+    //     for (int i = 1; i < inResources.size(); i++) {
+    //         ServerResource temp = new ServerResource(inResources.get(i));
+    //         if (temp.getCoreCount() > topSR.getCoreCount()) {
+    //             topSR = temp;
+    //         }
+    //     }
+    //     return topSR;
+    // }
+
+    private static ArrayList<ServerResource> getLargestCPUServers(ArrayList<String> inResources) {
+        if (inResources == null || inResources.size() == 0) { return null; }
+        ArrayList<ServerResource> servers = new ArrayList<>();
+        int tempMaxCPU = 0;
+        for (String resource : inResources) {
+            servers.add(new ServerResource(resource));
+            if (servers.get(servers.size()-1).getCoreCount() > tempMaxCPU) {
+                tempMaxCPU = servers.get(servers.size()-1).getCoreCount();
             }
         }
-        return topSR;
+        int maxCore = tempMaxCPU;
+        servers.removeIf(sr -> sr.getCoreCount() != maxCore);
+        return servers;
+
     }
 } 
