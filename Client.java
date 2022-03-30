@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Client {
-    static String targetIP;
+    static String targetIP = "127.0.0.1";  // Need to set default IP for week 7 demo
     static int targetPort = 50000;  // default port per ds-sim user guide
 
     public static void main(String[] args) {
@@ -23,7 +23,6 @@ public class Client {
                 targetIP = args[0];
                 break;
             case 0:
-                targetIP = "127.0.0.1";
                 break;
             default:  // Close program if too few/many arguments.
                 System.err.println("! Run executable with a target IP and/or target port !");
@@ -42,12 +41,10 @@ public class Client {
             List<Job> jobList = new ArrayList<>();
             List<ServerResource> serverList = new ArrayList<>();
             int numJobs = 0;
-            // String topCPUType = "";
-            // int topCPUTypeCount = -1;
             while (!step6.equals("NONE")) {
                 if (step6.substring(0, 4).equals("JOBN")) {  // Handle JOBN
                     jobList.add(new Job(step6));
-                    sendMessage("GETS All " + jobList.get(numJobs).getCapableString(), outStream);
+                    sendMessage("GETS All " + jobList.get(numJobs).getQueryString(), outStream);
                     // Data preparation: DATA nRecs recLen
                     String[] dataPrep = readMessage(buffReader).split(" ");
                     sendMessage("OK", outStream);
@@ -60,33 +57,22 @@ public class Client {
                         System.err.println("Did not get '.' after resources");
                         break;
                     }
-                    if (serverList.isEmpty()) {
+                    if (serverList.isEmpty()) {  // Populate server list only on first run of loop.
                         serverList = getLargestCPUServers(resources);
                     }
-                    // if (topCPUType.isBlank()) {  // Only run on initial run of loop
-                    //     topCPUType = getTopCPU(resources).getServerType();
-                        // for (String resource : resources) {
-                        //     if (resource.contains(topCPUType)) {
-                        //         topCPUTypeCount++;
-                        //     }
-                        // }
-                    // }
-                    // String curResource = topCPUType + " " + numJobs % topCPUTypeCount;
-                    // String schdMsg = "SCHD " + jobList.get(numJobs).getJobID()+ " " + curResource;
                     String curResource = serverList.get(numJobs % serverList.size()).getName();
-                    String schdMsg = "SCHD " +jobList.get(numJobs).getJobID() + " " + curResource;
+                    String schdMsg = "SCHD " + jobList.get(numJobs).getJobID() + " " + curResource;
                     sendMessage(schdMsg, outStream);
                     if (!checkInMessage("OK", buffReader)) { break; }
                     numJobs++;
                 }
                 if (step6.substring(0, 4).equals("JCPL")) {  // Handle JCPL
-                    System.out.println("Job completed: " + step6);
+                    // Currently do nothing
                 }
                 // Request new job/server update and start loop again
                 sendMessage("REDY", outStream);
                 step6 = readMessage(buffReader);
             }
-
             // Gracefully close connection
             sendMessage("QUIT", outStream);
             readMessage(buffReader);
@@ -115,7 +101,6 @@ public class Client {
         if (!checkInMessage("OK", inputStream)) { return; }  // Step 2
         sendMessage("AUTH " + System.getProperty("user.name"), outputStream);  // Step 3
         if (!checkInMessage("OK", inputStream)) { return; }  // Step 4
-        System.out.println("DS-Sim greet successful.");
     }
 
     /**
@@ -133,7 +118,6 @@ public class Client {
         }
         try {
             String received = inputStream.readLine();
-            // System.out.println("Received: " + received);  // Significantly slows down Client
             return received;
         } catch (Exception e) {
             System.err.println("readMessage IOException: could not read stream into buffer");
@@ -166,7 +150,6 @@ public class Client {
      */
     private static void sendMessage(String msgToSend, DataOutputStream outputStream) {
         try {
-            // System.out.println("\nSending: " + msgToSend);
             outputStream.write((msgToSend + "\n").getBytes("UTF-8"));
         } catch (IOException e) {
             System.err.println("sendMessage: IOException - " + e.getMessage());
@@ -174,37 +157,28 @@ public class Client {
     }
 
     /**
-     * Returns the ServerResource with highest available CPU core count. If two or more have
-     * the same highest CPU core count, return one which will lower the available cores for
-     * next time the function is called.
-     * @param inResources
-     * @return ServerResource with highest available core count
+     * Returns a list of the *first* server type with the largest CPU core count.
+     * <p>
+     * Used for LRR scheduling.
+     * @param inResources A list of servers/resources received from ds-sim server.
+     * @return A list of resources to schedule jobs to with LRR scheduling.
      */
-    // private static ServerResource getTopCPU(ArrayList<String> inResources) {
-    //     if (inResources == null | inResources.size() == 0) { return null; }
-    //     ServerResource topSR = new ServerResource(inResources.get(0));
-    //     for (int i = 1; i < inResources.size(); i++) {
-    //         ServerResource temp = new ServerResource(inResources.get(i));
-    //         if (temp.getCoreCount() > topSR.getCoreCount()) {
-    //             topSR = temp;
-    //         }
-    //     }
-    //     return topSR;
-    // }
-
     private static ArrayList<ServerResource> getLargestCPUServers(ArrayList<String> inResources) {
         if (inResources == null || inResources.size() == 0) { return null; }
         ArrayList<ServerResource> servers = new ArrayList<>();
         int tempMaxCPU = 0;
+        String firstTopType = "";
         for (String resource : inResources) {
             servers.add(new ServerResource(resource));
             if (servers.get(servers.size()-1).getCoreCount() > tempMaxCPU) {
                 tempMaxCPU = servers.get(servers.size()-1).getCoreCount();
+                firstTopType = servers.get(servers.size()-1).getType();
             }
         }
+        // Make variables "effectively final" to use in Predicate.
+        String topType = firstTopType;
         int maxCore = tempMaxCPU;
-        servers.removeIf(sr -> sr.getCoreCount() != maxCore);
+        servers.removeIf(sr -> sr.getCoreCount() != maxCore || !sr.getType().equals(topType));
         return servers;
-
     }
 } 
