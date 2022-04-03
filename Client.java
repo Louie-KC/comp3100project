@@ -5,7 +5,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
-import java.util.List;
 
 public class Client {
     static String targetIP = "127.0.0.1";  // Need to set default IP for week 7 demo
@@ -26,7 +25,7 @@ public class Client {
                 break;
             default:  // Close program if too few/many arguments.
                 System.err.println("! Run executable with a target IP and/or target port !");
-                System.out.println("command: java Client <IP (oprtional, default 127.0.0.1)> <Port (optional, default: 50000)>");
+                System.out.println("command: java Client <IP (optional, default 127.0.0.1)> <Port (optional, default: 50000)>");
                 return;
         }
         try {
@@ -38,36 +37,32 @@ public class Client {
             // Job scheduling
             sendMessage("REDY", outStream);  // Step 5
             String step6 = readMessage(buffReader);  // Step 6
-            List<Job> jobList = new ArrayList<>();
-            List<ServerResource> serverList = new ArrayList<>();
-            int numJobs = 0;
+            ArrayList<Job> jobList = new ArrayList<>();
+            ArrayList<ServerResource> serverList = new ArrayList<>();
             while (!step6.equals("NONE")) {
                 if (step6.substring(0, 4).equals("JOBN")) {  // Handle JOBN
                     jobList.add(new Job(step6));
-                    sendMessage("GETS All " + jobList.get(numJobs).getQueryString(), outStream);
-                    // Data preparation: DATA nRecs recLen
-                    String[] dataPrep = readMessage(buffReader).split(" ");
-                    sendMessage("OK", outStream);
-                    ArrayList<String> resources = new ArrayList<>();
-                    for (int i = 0; i < Integer.valueOf(dataPrep[1]); i++) {
-                        resources.add(readMessage(buffReader));
-                    }
-                    sendMessage("OK", outStream);
-                    if (!checkInMessage(".", buffReader)) {
-                        System.err.println("Did not get '.' after resources");
-                        break;
-                    }
-                    if (serverList.isEmpty()) {  // Populate server list only on first run of loop.
-                        serverList = getLargestCPUServers(resources);
+                    int numJobs = jobList.size()-1;
+                    if (serverList.isEmpty()) {  // Acquire server list only once for LRR
+                        sendMessage("GETS All " + jobList.get(numJobs).getQueryString(), outStream);
+                        // Data preparation: DATA nRecs recLen
+                        String[] dataPrep = readMessage(buffReader).split(" ");
+                        sendMessage("OK", outStream);
+                        ArrayList<String> resources = new ArrayList<>();
+                        for (int i = 0; i < Integer.valueOf(dataPrep[1]); i++) {
+                            resources.add(readMessage(buffReader));
+                        }
+                        sendMessage("OK", outStream);
+                        if (!checkInMessage(".", buffReader)) {
+                            System.err.println("Did not get '.' after servers");
+                            break;
+                        }
+                        serverList = getLargestCPUServers(resources);  // Store filtered server list
                     }
                     String curResource = serverList.get(numJobs % serverList.size()).getName();
                     String schdMsg = "SCHD " + jobList.get(numJobs).getJobID() + " " + curResource;
                     sendMessage(schdMsg, outStream);
                     if (!checkInMessage("OK", buffReader)) { break; }
-                    numJobs++;
-                }
-                if (step6.substring(0, 4).equals("JCPL")) {  // Handle JCPL
-                    // Currently do nothing
                 }
                 // Request new job/server update and start loop again
                 sendMessage("REDY", outStream);
@@ -175,10 +170,9 @@ public class Client {
                 firstTopType = servers.get(servers.size()-1).getType();
             }
         }
-        // Make variables "effectively final" to use in Predicate.
+        // Make firstTopType "effectively final" for use in Predicate.
         String topType = firstTopType;
-        int maxCore = tempMaxCPU;
-        servers.removeIf(sr -> sr.getCoreCount() != maxCore || !sr.getType().equals(topType));
+        servers.removeIf(sr -> !sr.getType().equals(topType));
         return servers;
     }
 } 
