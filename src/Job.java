@@ -23,5 +23,5 @@ public class Job {
     public String getQueryString() {
         String result = CPURequirement + " " + RAMRequirement + " " + diskSpaceRequirement;
         return result;
-    }
+    } 
 }

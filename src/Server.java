@@ -1,10 +1,9 @@
-public class ServerResource {
+public class Server {
     private String type;
     private int id;
     private int coreCount;
 
-    
-    public ServerResource(String resourceString) {
+    public Server(String resourceString) {
         String[] data = resourceString.split(" ");
         type = data[0];
         id = Integer.valueOf(data[1]);
