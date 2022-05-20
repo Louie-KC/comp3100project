@@ -133,20 +133,6 @@ public class Client {
     }
 
     /**
-     * USED ONLY DURING GetServerState!
-     * <p>
-     * Removes first job in joblist. Only here to ensure transition from GetServerState to
-     * SchedulingState goes smoothly without doubling up of the first job.
-     */
-    public void removeFirstJob() {
-        if (curState instanceof GetServersState) {
-            jobList.remove(0);
-        } else {
-            System.err.println("removeFirstJob: Attempted to run in incorrect state");
-        }
-    }
-
-    /**
      * Updates the Clients current state.
      * @param newState The state to transition to.
      */

@@ -11,8 +11,7 @@ public class GetServersState implements State {
             c.changeState(new TerminatingState());
             return;
         }
-        c.addJob();
-        String tempMsg = c.getLastMsg();  // Store JOBN temporarily
+        String tempMsg = c.getLastMsg();  // Store JOBN data temporarily
         
         // Get server info
         c.sendMessage("GETS All");  // Did not need job details, only for one to be sent
@@ -30,11 +29,11 @@ public class GetServersState implements State {
             c.changeState(new TerminatingState());
             return;
         }
-        // Since we have already retrieved the first job and added it to the job list we
-        // need to remove it and set the last receveived message to be of the job details.
-        // This is because the Scheduling state is responsible for building up the job list.
-        c.setLastMsg(tempMsg); // rewrite msg so job does not need to be queried for again.
-        c.removeFirstJob();  // Remove job so when added in SchedulingState we don't have two records.
+        // Since we have already retrieved the first job we do not want to query for it again.
+        // Instead only this once do we re-write the clients last received message so that it
+        // contains the job details we stored earlier. The scheduling state is responsible for
+        // building/maintaining the clients job list, so we are give it a job to start with.
+        c.setLastMsg(tempMsg);
         c.changeState(new SchedulingState());
     }
     
