@@ -43,9 +43,9 @@ public class SchedulingState implements State {
      * @param c
      */
     private void largestRoundRobin(Client c) {
-        if (!c.serversFiltered) { getLargestCPUServers(c.serverList); }
-        Job job = c.jobList.get(c.jobList.size() + JOB_OFFSET);
-        Server target = c.serverList.get((c.jobList.size() + JOB_OFFSET) % c.serverList.size());
+        if (!c.serversFiltered) { getLargestCPUServers(c.getServers()); }
+        Job job = c.getJobs().get(c.getJobs().size() + JOB_OFFSET);
+        Server target = c.getServers().get((c.getJobs().size() + JOB_OFFSET) % c.getServers().size());
         c.sendMessage("SCHD " + job.getJobID() + " " + target.getName());
         c.readMessage();
         if (!c.getLastMsg().equals("OK")) {

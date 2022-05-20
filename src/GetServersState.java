@@ -15,9 +15,9 @@ public class GetServersState implements State {
         String tempMsg = c.getLastMsg();  // Store JOBN temporarily
         
         // Get server info
-        c.sendMessage("GETS All " + c.jobList.get(c.jobList.size()-1).getQueryString());
-        c.readMessage();
-        int numServers = Integer.valueOf(c.getLastMsg().split(" ")[1]);
+        c.sendMessage("GETS All");  // Did not need job details, only for one to be sent
+        c.readMessage();  // DATA nRecs recLen
+        int numServers = Integer.valueOf(c.getLastMsg().split(" ")[1]);  // get nRecs value
         c.sendMessage("OK");
         for (int i = 0; i < numServers; i++) {
             c.readMessage();  // Details of a server
@@ -26,18 +26,15 @@ public class GetServersState implements State {
         c.sendMessage("OK");
         c.readMessage();
         if (!c.getLastMsg().equals(".")) {
-            System.err.println("Did not get '.' after servers");
+            System.err.println("GetServersState: Did not get '.' after servers");
             c.changeState(new TerminatingState());
             return;
         }
         // Since we have already retrieved the first job and added it to the job list we
         // need to remove it and set the last receveived message to be of the job details.
         // This is because the Scheduling state is responsible for building up the job list.
-
-        // c.lastMsgRCVD = tempMsg;  // rewrite msg so job does not need to be queried for again.
-        c.setLastMsg(tempMsg);
-        c.removeFirstJob();
-        // c.jobList.remove(0);
+        c.setLastMsg(tempMsg); // rewrite msg so job does not need to be queried for again.
+        c.removeFirstJob();  // Remove job so when added in SchedulingState we don't have two records.
         c.changeState(new SchedulingState());
     }
     

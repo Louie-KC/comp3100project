@@ -7,15 +7,15 @@ import java.util.List;
 
 public class Client {
     
-    BufferedReader inStream;
-    DataOutputStream outStream;
+    private BufferedReader inStream;
+    private DataOutputStream outStream;
 
     private String lastMsgRCVD;
     private boolean connected;
-    private State curState;
 
-    List<Job> jobList;
-    List<Server> serverList;
+    private State curState;
+    private List<Job> jobList;
+    private List<Server> serverList;
     boolean serversFiltered;
 
     public Client(BufferedReader inputStream, DataOutputStream outputStream) {
@@ -24,11 +24,14 @@ public class Client {
         lastMsgRCVD = "";
         connected = true;
         curState = new InitialState();
-        jobList = new LinkedList<>();
-        serverList = new ArrayList<>();
+        jobList = new LinkedList<>();  // No rewriting entire list when removing from or growing list
+        serverList = new ArrayList<>();  // ArrList as Servers do not change. May be filtered only once.
         serversFiltered = false;
     }
 
+    /**
+     * Run/Start the client.
+     */
     public void run() {
         while (connected) {
             curState.action(this);
@@ -40,7 +43,6 @@ public class Client {
      * terminating character nor an EOT character expected by DataInputStream.
      * <p>
      * Expects "\n" at the end of each line. Launch ds-server with option -n.
-     * @param inputStream
      * @return Message sent by ds-server as String
      * @throws IOException
      */
@@ -61,7 +63,6 @@ public class Client {
      * <p>
      * Adds \n to end of message to indicate end of line.
      * @param msgToSend
-     * @param outputStream
      */
     public void sendMessage(String msgToSend) {
         try {
@@ -69,6 +70,22 @@ public class Client {
         } catch (IOException e) {
             System.err.println("sendMessage: IOException - " + e.getMessage());
         }
+    }
+
+    /**
+     * Job list getter.
+     * @return list of jobs stored by client.
+     */
+    public List<Job> getJobs() {
+        return jobList;
+    }
+
+    /**
+     * Server list getter.
+     * @return list of servers stored by client
+     */
+    public List<Server> getServers() {
+        return serverList;
     }
 
     /**
