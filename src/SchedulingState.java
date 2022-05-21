@@ -43,7 +43,53 @@ public class SchedulingState implements State {
      * @param c
      */
     private void stage2JOBN(Client c) {
+        c.updateKnownTime();  // Update client clock
+        c.addJob();
+        Server curServer;
+        Job job = c.getJobs().get(c.getJobs().size() + JOB_OFFSET);
+        String schdMessage = "SCHD " + job.getJobID() + " ";
+        // int[] estTimeToStart = new int[c.getServers().size()];
 
+        int minTimeIdx = 0;
+        int minTime = Integer.MAX_VALUE;
+
+        // Search backwards through server list (As larger servers are received last)
+        for (int i = c.getServers().size()+JOB_OFFSET; i >= 0; i--) {
+            curServer = c.getServers().get(i);
+            if (curServer.canRunJob(job)) {
+                c.sendMessage(schdMessage + curServer.getName());
+                c.readMessage();
+                curServer.jobScheduled(job);
+                return;
+            }
+            // If the server cannot run job immediately, check when/if it can and record time if it
+            // provides the smallest known queue waiting time.
+            if (curServer.canEventuallyRunJob(job)) {
+                // estTimeToStart[i] = curServer.estWhenReadyForJob(job, c.getKnownTime());
+                int curTimeEst = curServer.estWhenReadyForJob(job, c.getKnownTime());
+                if (minTime > curTimeEst) {
+                    minTime = curTimeEst;
+                    minTimeIdx = i;
+                }
+            }
+            // } else {
+            //     estTimeToStart[i] = Integer.MAX_VALUE;
+            // }
+        }
+        // int minTimeIdx = 0;
+        // int minTime = Integer.MAX_VALUE;
+        // for (int i = 0; i < estTimeToStart.length; i++) {
+        //     if (minTime > estTimeToStart[i]) {
+        //         minTime = estTimeToStart[i];
+        //         minTimeIdx = i;
+        //     }
+        // }
+        // Get the server that provides the shortest estimated waiting time in queue
+        curServer = c.getServers().get(minTimeIdx);
+        c.sendMessage(schdMessage + curServer.getName());
+        c.readMessage();
+        curServer.jobScheduled(job);
+        curServer.serverValidityCheck();
     }
 
     /**
@@ -55,7 +101,31 @@ public class SchedulingState implements State {
      * @param c
      */
     private void stage2JCLP(Client c) {
+        c.updateKnownTime();  // Update client clock
+        // JCPL format: JCPL endTime jobID serverType serverID
+        String data[] = c.getLastMsg().split(" ");
+        Server serverOfInterest = null;  // Target for job migration as job has completed.
 
+        // Deallocate resources off appropraite server
+        for (Server s : c.getServers()) {
+            if (s.getType().equals(data[3]) && s.getID() == Integer.valueOf(data[4])) {
+                s.jobCompleted(Integer.valueOf(data[2]));
+                if (!s.getQueuedJobs().isEmpty()) {
+                    s.moveQueuedJobToRunning();
+                    return;
+                }
+                serverOfInterest = s;
+            }
+        }
+        // Check if we can reschedule some job to the server
+        if (serverOfInterest != null && !serverOfInterest.getQueuedJobs().isEmpty()) {
+            // Record stats of serverOfInterest
+
+            // Go through all queued jobs of all servers until we can migrate one 
+            // to the serverOfInterest
+
+            // If not, oh well :(
+        }
     }
 
     /**
