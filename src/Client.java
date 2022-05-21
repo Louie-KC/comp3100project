@@ -12,6 +12,7 @@ public class Client {
 
     private String lastMsgRCVD;
     private boolean connected;
+    private int lastKnownTime;
 
     private State curState;
     private List<Job> jobList;
@@ -23,6 +24,7 @@ public class Client {
         outStream = outputStream;
         lastMsgRCVD = "";
         connected = true;
+        lastKnownTime = 0;
         curState = new InitialState();
         jobList = new LinkedList<>();  // No rewriting entire list when removing from or growing list
         serverList = new ArrayList<>();  // ArrList as Servers do not change. May be filtered only once.
@@ -145,5 +147,27 @@ public class Client {
      */
     public void setDisconnect() {
         connected = false;
+    }
+
+    public int getKnownTime() {
+        return lastKnownTime;
+    }
+
+    /**
+     * Update last known time with data from the last message if it's a JOBN or JCPL message.
+     * Relies on the format of JOBN and JCPL to mention the time in their second white space
+     * separated value.
+     * <p>
+     * Message formats for reference:
+     * <ul>
+     * <li> JOBN submitTime jobID estRuntime core memory disk </li>
+     * <li> JCPL endTime jobID serverType serverID </li>
+     * </ul>
+     * Assumes that submitTime and endTime are the current time with the message.
+     */
+    public void updateKnownTime() {
+        if (getLastMsg().contains("JOBN") || getLastMsg().contains("JCPL")) {
+            lastKnownTime = Integer.valueOf(getLastMsg().split(" ")[1]);
+        }
     }
 }

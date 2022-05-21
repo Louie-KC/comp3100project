@@ -8,7 +8,8 @@ public class SchedulingState implements State {
     // Client-server communication in scheduling algorithms MUST ONLY be of sending a
     // scheduling message, and receiving (and checking) the "OK" that should follow.
     // Retrieving updates from the server (including new jobs) is handled by the action
-    // method that is called by the Client class.
+    // method that is called by the Client class. Where jobs are created is up to the
+    // algorithm (client or on server instance).
 
     // Used for converting job list size to a useful index.
     private final int JOB_OFFSET = -1;
@@ -20,17 +21,41 @@ public class SchedulingState implements State {
             return;
         }
         if (c.getLastMsg().contains("JCPL")) {
-            c.sendMessage("REDY");
-            c.readMessage();
+            stage2JCLP(c);
             return;
         }
         if (c.getLastMsg().contains("JOBN")) {
-            c.addJob();
-            largestRoundRobin(c);
+            // largestRoundRobin(c);
+            stage2JOBN(c);
         }
         // Receiving next update from server
         c.sendMessage("REDY");
         c.readMessage();
+    }
+
+    /**
+     * Goals:
+     * 1. Start fitting to worst fit, 
+     * 2. Each job scheduled (assumed running and known queued) are to be stored in each Server inst
+     * 3. Update clients lastKnownTime/clock
+     * 4. If resources are not immediately available on any server, add to queue of server with shortest
+     *    estimated time to some job completion that deallocates the resources needed for the new job.
+     * @param c
+     */
+    private void stage2JOBN(Client c) {
+
+    }
+
+    /**
+     * Goals:
+     * 1. Update Server in memories known available resources (deallocation)
+     * 2. Update clients lastKnownTime/clock
+     * 3. Check all other servers queued jobs to see if some queued job can be migrated to the
+     *    server which just completed a job.
+     * @param c
+     */
+    private void stage2JCLP(Client c) {
+
     }
 
     /**
@@ -43,6 +68,7 @@ public class SchedulingState implements State {
      * @param c
      */
     private void largestRoundRobin(Client c) {
+        c.addJob();
         if (!c.serversFiltered) { getLargestCPUServers(c.getServers()); }
         Job job = c.getJobs().get(c.getJobs().size() + JOB_OFFSET);
         Server target = c.getServers().get((c.getJobs().size() + JOB_OFFSET) % c.getServers().size());
