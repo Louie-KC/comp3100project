@@ -34,7 +34,7 @@ public class SchedulingState implements State {
 
     /**
      * Goals:
-     * 1. Start fitting to worst fit, 
+     * 1. Start fitting to first fit (earlier mentioned/smaller servers first), 
      * 2. Each job scheduled (assumed running and known queued) are to be stored in each Server inst
      * 3. Update clients lastKnownTime/clock
      * 4. If resources are not immediately available on any server, add to queue of server with shortest
@@ -47,13 +47,12 @@ public class SchedulingState implements State {
         Server curServer;
         Job job = c.getJobs().get(c.getJobs().size() + JOB_OFFSET);
         String schdMessage = "SCHD " + job.getJobID() + " ";
-        // int[] estTimeToStart = new int[c.getServers().size()];
 
         int minTimeIdx = 0;
         int minTime = Integer.MAX_VALUE;
 
         // Search server list backwards (As larger servers are received last) for ready now server
-        for (int i = c.getServers().size()+JOB_OFFSET; i >= 0; i--) {
+        for (int i = 0; i < c.getServers().size(); i++) {
             curServer = c.getServers().get(i);
             if (curServer.canRunJob(job)) {
                 c.sendMessage(schdMessage + curServer.getName());
@@ -129,32 +128,47 @@ public class SchedulingState implements State {
         // int minQueueTime = Integer.MAX_VALUE;
         // Server minQueueServer = null;
         // Job eventualJob = null;
-        // For every other server that exists (not JCPLServer)
-
+        // For every other server that exists (except JCPLServer)
         for (Server otherS : c.getServers()) {
             if (otherS == JCPLServer) { continue; }
             // For every queued job on other server
+
+            // Front of queue migration
             for (Job queuedJob : otherS.getQueuedJobs()) {
                 if (JCPLServer.canRunJob(queuedJob)) {  // If JCPLServer can start job immediately
                     // MIGJ format: MIGJ jobID srcServerType srcServerID tgtServerType tgtServerID 
                     System.out.println("MIGRATING JOB!!!");
-                    c.sendMessage("MIGJ " + otherS.getName() + " " + JCPLServer.getName());
+                    c.sendMessage("MIGJ "+ queuedJob.getJobID()+ " "
+                                    + otherS.getName()
+                                    + " " + JCPLServer.getName());
                     c.readMessage();  // Expect "OK" as ACK for MIGJ message
                     // Migrate job in server in memory
                     otherS.migrateJob(JCPLServer, queuedJob);
                     return;
                 }
-
-                // If it can eventually run the server
-                // if (JCPLServer.canEventuallyRunJob(queuedJob)) {
-                //     int queueTime = JCPLServer.estWhenReadyForJob(queuedJob, c.getKnownTime());
-                //     if (queueTime < minQueueTime) {
-                //         minQueueTime = queueTime;
-                //         minQueueServer = otherS;
-                //         eventualJob = queuedJob;
-                //     }
-                // }
             }
+
+            // Back of queue migration
+            // for (int i = otherS.getQueuedJobs().size()+JOB_OFFSET; i >= 0; i--) {
+            //     Job queuedJob = otherS.getQueuedJobs().get(i);
+            //     if (JCPLServer.canRunJob(queuedJob)) {
+            //         System.out.println("MIGRATING JOB!!!");
+            //         c.sendMessage("MIGJ "+ queuedJob.getJobID()+ " " + otherS.getName() + " " + JCPLServer.getName());
+            //         c.readMessage();
+            //         otherS.migrateJob(JCPLServer, queuedJob);
+            //         return;
+            //     }
+            // }
+
+            // If it can eventually run the server
+            // if (JCPLServer.canEventuallyRunJob(queuedJob)) {
+            //     int queueTime = JCPLServer.estWhenReadyForJob(queuedJob, c.getKnownTime());
+            //     if (queueTime < minQueueTime) {
+            //         minQueueTime = queueTime;
+            //         minQueueServer = otherS;
+            //         eventualJob = queuedJob;
+            //     }
+            // }
         }
         // JCPLServer.migrateJob(minQueueServer, eventualJob);
     }
