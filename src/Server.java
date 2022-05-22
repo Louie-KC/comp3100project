@@ -233,6 +233,20 @@ public class Server {
     }
 
     /**
+     * Removes job from THIS server and schedules to targetServer. i.e. Job migration to target.
+     * @param targetServer Server to migrate job to
+     * @param jobToMigrate Job to be migrated
+     */
+    public void migrateJob(Server targetServer, Job jobToMigrate) {
+        if (targetServer == null || jobToMigrate == null || !queuedJobs.contains(jobToMigrate)) {
+            System.err.println("migrateJobToOtherServer: Invalid migration!!!");
+            return;
+        }
+        targetServer.jobScheduled(jobToMigrate);
+        queuedJobs.remove(jobToMigrate);  // No need to update stats as queued jobs have no effect.
+    }
+
+    /**
      * Checks resource stats and prints out error if resources of server fall below 0 or exceed
      * the servers original resource values.
      */
