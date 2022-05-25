@@ -170,4 +170,25 @@ public class Client {
             lastKnownTime = Integer.valueOf(getLastMsg().split(" ")[1]);
         }
     }
+
+    public List<Server> sendGets(String getsOption, Job job) {
+        String gets = "GETS ";
+        if (!getsOption.equals("All") && job != null) {
+            gets = gets + getsOption + " " + job.getQueryString();
+        } else {
+            gets = gets + getsOption;
+        }
+        sendMessage(gets);
+        readMessage(); // DATA nRecs recLen
+        int nRecs = Integer.valueOf(getLastMsg().split(" ")[1]);
+        sendMessage("OK");
+        List<Server> result = new ArrayList<>();
+        for (int i = 0; i < nRecs; i++) {
+            readMessage();
+            result.add(new Server(getLastMsg()));
+        }
+        if (result.size() != 0) { sendMessage("OK"); }
+        readMessage();
+        return result;
+    }
 }

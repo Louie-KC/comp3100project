@@ -1,3 +1,4 @@
+import java.util.ArrayList;
 import java.util.List;
 
 public class SchedulingState implements State {
@@ -33,144 +34,138 @@ public class SchedulingState implements State {
     }
 
     /**
-     * Goals:
-     * 1. Start fitting to first fit (earlier mentioned/smaller servers first), 
-     * 2. Each job scheduled (assumed running and known queued) are to be stored in each Server inst
-     * 3. Update clients lastKnownTime/clock
-     * 4. If resources are not immediately available on any server, add to queue of server with shortest
-     *    estimated time to some job completion that deallocates the resources needed for the new job.
-     * @param c
+     * Steps:
+     * 1. Schedule job to first fit in immediately available servers
+     * 2. If 1 cannot be achieved, schedule to the eventually capable server with the lowest
+     * estimated wait time.
+     * 
+     * @param c The client
      */
     private void stage2JOBN(Client c) {
-        c.updateKnownTime();  // Update client clock
         c.addJob();
-        Server curServer;
         Job job = c.getJobs().get(c.getJobs().size() + JOB_OFFSET);
         String schdMessage = "SCHD " + job.getJobID() + " ";
 
-        int minTimeIdx = 0;
-        int minTime = Integer.MAX_VALUE;
+        // Fit to smallest server that can run job immediately
+        List<Server> avail = c.sendGets("Avail", job);
+        if (!avail.isEmpty()) {
+            c.sendMessage(schdMessage + avail.get(0).getName());
+            c.readMessage();
+            return;
+        }
 
-        // Search server list backwards (As larger servers are received last) for ready now server
-        for (int i = 0; i < c.getServers().size(); i++) {
-            curServer = c.getServers().get(i);
-            if (curServer.canRunJob(job)) {
-                c.sendMessage(schdMessage + curServer.getName());
-                c.readMessage();
-                curServer.jobScheduled(job);
-                return;
-            }
-            // If the server cannot run job immediately, check when/if it can and record time if it
-            // provides the smallest known queue waiting time.
-            if (curServer.canEventuallyRunJob(job)) {
-                // estTimeToStart[i] = curServer.estWhenReadyForJob(job, c.getKnownTime());
-                int curTimeEst = curServer.estWhenReadyForJob(job, c.getKnownTime());
-                if (minTime > curTimeEst) {
-                    minTime = curTimeEst;
-                    minTimeIdx = i;
+        // Find smallest wait time and schedule to that eventually capable server
+        List<Server> capable = c.sendGets("Capable", job);
+        Server minWaitServer = capable.get(capable.size()-1);  // default to largest server
+        int minTime = Integer.MAX_VALUE;
+        // Find the smallest wait time
+        for (Server s : capable) {
+            List<String> serverJobs = sendLSTJ(c, s);
+            // LSTJ format: jobID jobState submitTIme startTime estRunTime core memory disk
+            for (String line : serverJobs) {
+                String data[] = line.split(" ");
+                if (!data[1].equals("2")) {
+                    break;
+                }
+                int cores = Integer.valueOf(data[5]);
+                int mem = Integer.valueOf(data[6]);
+                int disk = Integer.valueOf(data[7]);
+                if (cores < job.getCPUReq() || mem < job.getMemReq() || disk < job.getDiskReq()) {
+                    continue;
+                }
+                // startTime + estRunTime = estimated completion time
+                int estCompletion = Integer.valueOf(data[3]) + Integer.valueOf(data[4]);
+                if (estCompletion < minTime) {
+                    minTime = estCompletion;
+                    minWaitServer = s;
                 }
             }
-            // } else {
-            //     estTimeToStart[i] = Integer.MAX_VALUE;
-            // }
         }
-        // int minTimeIdx = 0;
-        // int minTime = Integer.MAX_VALUE;
-        // for (int i = 0; i < estTimeToStart.length; i++) {
-        //     if (minTime > estTimeToStart[i]) {
-        //         minTime = estTimeToStart[i];
-        //         minTimeIdx = i;
-        //     }
-        // }
-        // Get the server that provides the shortest estimated waiting time in queue
-        curServer = c.getServers().get(minTimeIdx);
-        c.sendMessage(schdMessage + curServer.getName());
+        c.sendMessage(schdMessage + minWaitServer.getName());
         c.readMessage();
-        curServer.jobScheduled(job);
-        curServer.serverValidityCheck();
     }
 
     /**
-     * Goals:
-     * 1. Update Server in memories known available resources (deallocation)
-     * 2. Update clients lastKnownTime/clock
-     * 3. Check all other servers queued jobs to see if some queued job can be migrated to the
-     *    server which just completed a job.
+     * Steps:
+     * 1. Find server instance that job completed on (JCPLServer).
+     * 2. Check all other servers for waiting jobs.
+     * 3. Migrate the first waiting job that can be started immediately on JCPLServer from 1.
      * @param c
      */
     private void stage2JCLP(Client c) {
-        c.updateKnownTime();  // Update client clock
         // JCPL format: JCPL endTime jobID serverType serverID
-        String data[] = c.getLastMsg().split(" ");
-        Server JCPLServer = null;  // Target for job migration as job has completed.
-
-        // Deallocate resources off appropriate server
+        String[] data = c.getLastMsg().split(" ");
+        String JCPLServerName = data[3] +" "+data[4];
+        Server JCPLServer = null;
+        // Find the server that just completed a job
         for (Server s : c.getServers()) {
-            // data[3] == serverType, data[4] == serverID
-            if (s.getType().equals(data[3]) && s.getID() == Integer.valueOf(data[4])) {
-                s.jobCompleted(Integer.valueOf(data[2]));  // data[2] == jobID
-                // if (!s.getQueuedJobs().isEmpty()) {
-                //     s.moveQueuedJobToRunning();
-                //     serverOfInterest = s;
-                // }
+            if (s.getName().equals(JCPLServerName)) {
                 JCPLServer = s;
                 break;
             }
         }
-        // if JCPLServer has job queue, end process (no point migrating a job to JCPLServer)
-        if (JCPLServer == null) { return; }
-        if (!JCPLServer.getQueuedJobs().isEmpty()) {
-            JCPLServer.moveQueuedJobToRunning();
-            return;
+
+        // Find JCPL currently available resources
+        int core = JCPLServer.getCoreCount();
+        int mem = JCPLServer.getMemory();
+        int disk = JCPLServer.getDisk();
+        List<String> JCPLServerJobs = sendLSTJ(c, JCPLServer);
+        for (String line : JCPLServerJobs) {
+            String[] lineData = line.split(" ");
+            // if JCPL Server holds a queue of jobs, end the migration process
+            if (lineData[1].equals("1")) { return; }
+            core -= Integer.valueOf(lineData[5]);
+            mem -= Integer.valueOf(lineData[6]);
+            disk -= Integer.valueOf(lineData[7]);
         }
-        // Check if we can reschedule some job to the server (as no queued jobs)
-
-        // int minQueueTime = Integer.MAX_VALUE;
-        // Server minQueueServer = null;
-        // Job eventualJob = null;
-        // For every other server that exists (except JCPLServer)
-        for (Server otherS : c.getServers()) {
-            if (otherS == JCPLServer) { continue; }
-            // For every queued job on other server
-
-            // Front of queue migration
-            for (Job queuedJob : otherS.getQueuedJobs()) {
-                if (JCPLServer.canRunJob(queuedJob)) {  // If JCPLServer can start job immediately
-                    // MIGJ format: MIGJ jobID srcServerType srcServerID tgtServerType tgtServerID 
-                    System.out.println("MIGRATING JOB!!!");
-                    c.sendMessage("MIGJ "+ queuedJob.getJobID()+ " "
-                                    + otherS.getName()
-                                    + " " + JCPLServer.getName());
-                    c.readMessage();  // Expect "OK" as ACK for MIGJ message
-                    // Migrate job in server in memory
-                    otherS.migrateJob(JCPLServer, queuedJob);
-                    return;
+        // At this point we know that JCPLServer has no waiting jobs
+        // Search for a job we can migrate to the JCPL server
+        List<Server> all = c.sendGets("All", null);
+        all.removeIf(s -> s.getWJobs() == 0);  // remove all servers w/ no waiting jobs
+        for (Server s : all) {
+            if (s == JCPLServer) { continue; }  // Skip checking JCPLServer, reduce traffic
+            List<String> jobs = sendLSTJ(c, s);
+            for (String line : jobs) {
+                // LSTJ format: jobID jobState submitTIme startTime estRunTime core memory disk
+                String[] lineData = line.split(" ");
+                if (lineData[1].equals("1")) {
+                    int coreReq = Integer.valueOf(lineData[5]);
+                    int memReq = Integer.valueOf(lineData[6]);
+                    int diskReq = Integer.valueOf(lineData[7]);
+                    if (coreReq <= core && memReq <= mem && diskReq <= disk) {
+                        c.sendMessage("MIGJ " + lineData[0] +" " + s.getName() + " " +JCPLServerName);
+                        c.readMessage();
+                        return;
+                    }
                 }
             }
-
-            // Back of queue migration
-            // for (int i = otherS.getQueuedJobs().size()+JOB_OFFSET; i >= 0; i--) {
-            //     Job queuedJob = otherS.getQueuedJobs().get(i);
-            //     if (JCPLServer.canRunJob(queuedJob)) {
-            //         System.out.println("MIGRATING JOB!!!");
-            //         c.sendMessage("MIGJ "+ queuedJob.getJobID()+ " " + otherS.getName() + " " + JCPLServer.getName());
-            //         c.readMessage();
-            //         otherS.migrateJob(JCPLServer, queuedJob);
-            //         return;
-            //     }
-            // }
-
-            // If it can eventually run the server
-            // if (JCPLServer.canEventuallyRunJob(queuedJob)) {
-            //     int queueTime = JCPLServer.estWhenReadyForJob(queuedJob, c.getKnownTime());
-            //     if (queueTime < minQueueTime) {
-            //         minQueueTime = queueTime;
-            //         minQueueServer = otherS;
-            //         eventualJob = queuedJob;
-            //     }
-            // }
         }
-        // JCPLServer.migrateJob(minQueueServer, eventualJob);
+    }
+
+
+    /**
+     * Stage 2 - experimental <p>
+     * Queries server for all jobs scheduled to a server. <p>
+     * Format: jobID jobState submitTIme startTime estRunTime core memory disk
+     * @param c client for communication
+     * @param server we wish to learn about
+     * @return list of jobs on server in format specified above
+     */
+    private List<String> sendLSTJ(Client c, Server server) {
+        if (c == null || server == null) { return null; }
+        List<String> jobsOnServer = new ArrayList<>();
+        c.sendMessage("LSTJ " + server.getName());
+        // DATA nRecs recLen
+        c.readMessage();
+        c.sendMessage("OK");
+        int nRecs = Integer.valueOf(c.getLastMsg().split(" ")[1]);
+        for (int i = 0; i < nRecs; i++) {
+            c.readMessage();
+            jobsOnServer.add(c.getLastMsg());
+        }
+        if (nRecs != 0) { c.sendMessage("OK"); }
+        c.readMessage();
+        return jobsOnServer;
     }
 
     /**

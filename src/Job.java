@@ -85,4 +85,24 @@ public class Job {
         if (getDiskReq() > other.getDiskReq()) { return 1; }
         return 0;
     }
+
+    public static Job getJobFromLSTJ(String line) {
+        if (line.isEmpty()) { return null; }
+        String data[] = line.split(" ");
+        // jobID jobState submitTime startTime estRunTime core memory disk
+        int id = Integer.valueOf(data[0]);
+        int state = Integer.valueOf(data[1]);
+        int submitTime = Integer.valueOf(data[2]);
+        int startTime = Integer.valueOf(data[3]);
+        int estRunTime = Integer.valueOf(data[4]);
+        int core = Integer.valueOf(data[5]);
+        int memory = Integer.valueOf(data[6]);
+        int disk = Integer.valueOf(data[7]);
+        // JOBN format: JOBN submitTime jobID estRuntime core memory disk
+        Job temp = new Job("JOBN "+submitTime+" "+id+" "+estRunTime+" "+core+" "+memory+" "+disk);
+        if (state == 2 && startTime != -1) {
+            temp.setEstCompleteTime(startTime);
+        }
+        return temp;
+    }
 }

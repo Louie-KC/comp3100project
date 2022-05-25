@@ -6,7 +6,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 
 public class Main {
-    static String targetIP = "127.0.0.1";  // Need to set default IP for week 7 demo
+    static String targetIP = "127.0.0.1";  // Need to set default IP as localhost for demo
+    // static String targetIP = "192.168.1.9";
     static int targetPort = 50000;  // default port per ds-sim user guide
 
     static Socket socket;
