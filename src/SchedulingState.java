@@ -2,8 +2,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class SchedulingState implements State {
-    // Putting in LRR just for testing after refactor. Will be changed to
-    // new scheduling algo later.
+    // Leaving LRR here
 
     // NOTE:
     // Client-server communication in scheduling algorithms MUST ONLY be of sending a
@@ -11,9 +10,6 @@ public class SchedulingState implements State {
     // Retrieving updates from the server (including new jobs) is handled by the action
     // method that is called by the Client class. Where jobs are created is up to the
     // algorithm (client or on server instance).
-
-    // Used for converting job list size to a useful index.
-    private final int JOB_OFFSET = -1;
 
     @Override
     public void action(Client c) {
@@ -25,6 +21,7 @@ public class SchedulingState implements State {
             stage2JCLP(c);
         }
         if (c.getLastMsg().contains("JOBN")) {
+            c.checkLastMsgForJob();
             // largestRoundRobin(c);
             stage2JOBN(c);
         }
@@ -42,12 +39,11 @@ public class SchedulingState implements State {
      * @param c The client
      */
     private void stage2JOBN(Client c) {
-        c.addJob();
-        Job job = c.getJobs().get(c.getJobs().size() + JOB_OFFSET);
+        Job job = c.getLastJob();
         String schdMessage = "SCHD " + job.getJobID() + " ";
 
         // Fit to smallest server that can run job immediately
-        List<Server> avail = c.sendGets("Avail", job);
+        List<Server> avail = sendGets(c, "Avail", job);
         if (!avail.isEmpty()) {
             c.sendMessage(schdMessage + avail.get(0).getName());
             c.readMessage();
@@ -55,16 +51,16 @@ public class SchedulingState implements State {
         }
 
         // Find smallest wait time and schedule to that eventually capable server
-        List<Server> capable = c.sendGets("Capable", job);
+        List<Server> capable = sendGets(c, "Capable", job);
         // Default to largest server as no job requires more resources than the largest server type.
         Server minWaitServer = capable.get(capable.size()-1);
         int minTime = Integer.MAX_VALUE;
-        // Find the smallest wait time
+        // Find the server with the smallest wait time for the job to be scheduled.
         for (Server s : capable) {
             List<String> serverJobs = sendLSTJ(c, s);
             // LSTJ format: jobID jobState submitTIme startTime estRunTime core memory disk
             for (String line : serverJobs) {
-                String data[] = line.split(" ");
+                String[] data = line.split(" ");
                 if (!data[1].equals("2")) {
                     break;
                 }
@@ -123,9 +119,9 @@ public class SchedulingState implements State {
         }
         // At this point we know that JCPLServer has no waiting jobs
         // Search for a job we can migrate to the JCPL server
-        List<Server> all = c.sendGets("All", null);
-        all.removeIf(s -> s.getWJobs() == 0);  // remove all servers w/ no waiting jobs
+        List<Server> all = sendGets(c, "All", null);
         for (Server s : all) {
+            if (s.getWJobs() == 0) { continue; }  // Skip, there are no waiting jobs to migrate
             if (s == JCPLServer) { continue; }  // Skip checking JCPLServer, reduce traffic
             List<String> jobs = sendLSTJ(c, s);
             for (String line : jobs) {
@@ -134,11 +130,13 @@ public class SchedulingState implements State {
                 // LSTJ format: jobID jobState submitTIme startTime estRunTime core memory disk
                 String[] lineData = line.split(" ");
                 if (lineData[1].equals("1")) {
+                    // Waiting job resource requirements
                     int coreReq = Integer.valueOf(lineData[5]);
                     int memReq = Integer.valueOf(lineData[6]);
                     int diskReq = Integer.valueOf(lineData[7]);
+                    // Check if we can migrate job to JCPLServer, if so decrease available reosurces
                     if (coreReq <= core && memReq <= mem && diskReq <= disk) {
-                        c.sendMessage("MIGJ " + lineData[0] +" " + s.getName() + " " +JCPLServerName);
+                        c.sendMessage("MIGJ "+lineData[0]+" "+s.getName()+" " +JCPLServerName);
                         c.readMessage();
                         core -= coreReq;
                         mem -= memReq;
@@ -151,12 +149,12 @@ public class SchedulingState implements State {
 
 
     /**
-     * Stage 2 - experimental <p>
-     * Queries server for all jobs scheduled to a server. <p>
+     * Stage 2 - Get the job list of a server <p>
+     * Queries ds-sim for all jobs scheduled to a server. <p>
      * Format: jobID jobState submitTIme startTime estRunTime core memory disk
      * @param c client for communication
      * @param server we wish to learn about
-     * @return list of jobs on server in format specified above
+     * @return A list of jobs on server in format specified above
      */
     private List<String> sendLSTJ(Client c, Server server) {
         if (c == null || server == null) { return null; }
@@ -176,6 +174,36 @@ public class SchedulingState implements State {
     }
 
     /**
+     * Stage 2 <p>
+     * Sends GETS message to ds-sim with the specified GETS option (All, Capable, Avail) and adds
+     * job details if necessary. Stores the response in a Server List and returns it.
+     * @param c Client
+     * @param getsOption "All", "Capable", "Avail"
+     * @param job The job to get resource information if necessary
+     * @return The ds-sim servers response as a list of Servers. Null if invalid parameters.
+     */
+    public List<Server> sendGets(Client c, String getsOption, Job job) {
+        String gets = "GETS ";
+        if (getsOption.equals("Capable") || getsOption.equals("Avail") && job != null) {
+            gets = gets + getsOption + " " + job.getQueryString();
+        } else if (getsOption.equals("All")) {
+            gets = gets + getsOption;
+        }
+        c.sendMessage(gets);
+        c.readMessage(); // DATA nRecs recLen
+        int nRecs = Integer.valueOf(c.getLastMsg().split(" ")[1]);
+        c.sendMessage("OK");
+        List<Server> result = new ArrayList<>();
+        for (int i = 0; i < nRecs; i++) {
+            c.readMessage();
+            result.add(new Server(c.getLastMsg()));
+        }
+        if (result.size() != 0) { c.sendMessage("OK"); }
+        c.readMessage();
+        return result;
+    }
+
+    /**
      * Stage 1 - Largest Round Robin
      * <p>
      * Schedule jobs to a set of servers with the largest physical CPU resources that
@@ -185,10 +213,9 @@ public class SchedulingState implements State {
      * @param c
      */
     private void largestRoundRobin(Client c) {
-        c.addJob();
-        if (!c.serversFiltered) { getLargestCPUServers(c.getServers()); }
-        Job job = c.getJobs().get(c.getJobs().size() + JOB_OFFSET);
-        Server target = c.getServers().get((c.getJobs().size() + JOB_OFFSET) % c.getServers().size());
+        if (!c.getServerFilterStatus()) { getLargestCPUServers(c.getServers()); }
+        Job job = c.getLastJob();
+        Server target = c.getServers().get((c.getJobCount()-1) % c.getServers().size());
         c.sendMessage("SCHD " + job.getJobID() + " " + target.getName());
         c.readMessage();
         if (!c.getLastMsg().equals("OK")) {
@@ -229,4 +256,5 @@ public class SchedulingState implements State {
         String topType = firstTopType;
         servers.removeIf(sr -> !sr.getType().equals(topType));
     }
+    
 }
