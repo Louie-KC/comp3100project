@@ -56,7 +56,8 @@ public class SchedulingState implements State {
 
         // Find smallest wait time and schedule to that eventually capable server
         List<Server> capable = c.sendGets("Capable", job);
-        Server minWaitServer = capable.get(capable.size()-1);  // default to largest server
+        // Default to largest server as no job requires more resources than the largest server type.
+        Server minWaitServer = capable.get(capable.size()-1);
         int minTime = Integer.MAX_VALUE;
         // Find the smallest wait time
         for (Server s : capable) {
@@ -67,9 +68,11 @@ public class SchedulingState implements State {
                 if (!data[1].equals("2")) {
                     break;
                 }
+                // running job resources
                 int cores = Integer.valueOf(data[5]);
                 int mem = Integer.valueOf(data[6]);
                 int disk = Integer.valueOf(data[7]);
+                // skip if the job is smaller than job to be scheduled
                 if (cores < job.getCPUReq() || mem < job.getMemReq() || disk < job.getDiskReq()) {
                     continue;
                 }
@@ -126,6 +129,8 @@ public class SchedulingState implements State {
             if (s == JCPLServer) { continue; }  // Skip checking JCPLServer, reduce traffic
             List<String> jobs = sendLSTJ(c, s);
             for (String line : jobs) {
+                // If we use up all resources on JCPLServer, stop migration process
+                if (core <= 0 || mem <= 0 || disk <= 0) { return; }
                 // LSTJ format: jobID jobState submitTIme startTime estRunTime core memory disk
                 String[] lineData = line.split(" ");
                 if (lineData[1].equals("1")) {
@@ -135,7 +140,9 @@ public class SchedulingState implements State {
                     if (coreReq <= core && memReq <= mem && diskReq <= disk) {
                         c.sendMessage("MIGJ " + lineData[0] +" " + s.getName() + " " +JCPLServerName);
                         c.readMessage();
-                        return;
+                        core -= coreReq;
+                        mem -= memReq;
+                        disk -= diskReq;
                     }
                 }
             }
