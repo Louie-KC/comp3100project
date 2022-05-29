@@ -1,4 +1,3 @@
-<!-- Session 1 2022 COMP3100 stage one project. -->
 # MQ COMP3100 Session 1 2022 project
 46399089 - Louie Coghill
 
@@ -9,9 +8,13 @@ A copy of the ds-sim executables (29/05/2022) and sample configs are found in th
 A copy of stage specifications and reports are found in the `docs` directory.
 
 ## How to launch/run
-`java Main <IP> <Port>`
+`java Main <Options>`
 
-IP and Port arguments are optional
+Options:
+* -ip (ip address)
+* -p (port)
+
+Default settings
 * Default IP: 127.0.0.1
 * Default Port: 50000
 

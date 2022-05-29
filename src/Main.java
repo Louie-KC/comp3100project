@@ -13,21 +13,8 @@ public class Main {
     static Client client;
 
     public static void main(String[] args) {
-        // Arguments check
-        switch (args.length) {
-            case 2:
-                targetPort = Integer.valueOf(args[1]);
-                // fall through
-            case 1:
-                targetIP = args[0];
-                break;
-            case 0:
-                break;
-            default:  // Close program if too few/many arguments.
-                System.err.println("! Run executable with a target IP and/or target port !");
-                System.out.println("command: java Client <IP (optional, default 127.0.0.1)> <Port (optional, default: 50000)>");
-                return;
-        }
+        // Arguments check, exit if bad launch args.
+        if (argsCheck(args) == false) { return; }
         // Create socket and client, start client.
         try {
             socket = new Socket(targetIP, targetPort);
@@ -48,5 +35,39 @@ public class Main {
                 System.err.println("Socket closing: " + e.getMessage());
             }
         }
+    }
+
+    public static void printLaunchOptions() {
+        System.out.println("Launch:  `java Main <options>`");
+        System.out.println("Options: -ip (ip address), -p (port number)");
+    }
+
+    private static boolean argsCheck(String[] inArgs) {
+        try {
+            for (int i = 0; i < inArgs.length; i++) {
+                if (!inArgs[i].equals("-ip") && !inArgs[i].equals("-p")) {
+                    throw new Exception("Invalid argument: " + inArgs[i]);
+                }
+                if (inArgs[i].equals("-ip")) {
+                    targetIP = inArgs[++i];
+                }
+                if (inArgs[i].equals("-p")) {
+                    targetPort = Integer.valueOf(inArgs[++i]);
+                    if (targetPort < 0 || targetPort > 65535) {
+                        throw new Exception("Bad port number: " + inArgs[i]);
+                    }
+                }
+            }
+        } catch (NumberFormatException e) {
+            System.err.print("NumberFormartException parsing port option. ");
+            System.err.println(e.getMessage());
+            printLaunchOptions();
+            return false;
+        } catch (Exception e) {
+            System.err.println(e.getMessage());
+            printLaunchOptions();
+            return false;
+        }
+        return true;
     }
 }
