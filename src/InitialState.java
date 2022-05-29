@@ -7,9 +7,6 @@ public class InitialState implements State {
         c.readMessage();
         c.sendMessage("AUTH " + System.getProperty("user.name"));
         c.readMessage();
-        // Update client state to getServersState
-        // c.sendMessage("REDY");
-        // c.readMessage();
-        c.changeState(new GetServersState());
+        c.changeState(new GetServersState()); // Update client state to getServersState
     }
 }

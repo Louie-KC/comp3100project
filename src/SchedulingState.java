@@ -2,14 +2,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class SchedulingState implements State {
-    // Leaving LRR here
-
     // NOTE:
-    // Client-server communication in scheduling algorithms MUST ONLY be of sending a
-    // scheduling message, and receiving (and checking) the "OK" that should follow.
-    // Retrieving updates from the server (including new jobs) is handled by the action
-    // method that is called by the Client class. Where jobs are created is up to the
-    // algorithm (client or on server instance).
+    // Client-server communication in scheduling algorithms MUST NOT contain the query
+    // for the next update from the ds-sim server. This is handled at the end of the action
+    // method. Action is continuously called by the Client until its state changes to the
+    // TerminatingState.
 
     @Override
     public void action(Client c) {
@@ -34,9 +31,9 @@ public class SchedulingState implements State {
      * Steps:
      * 1. Schedule job to first fit in immediately available servers
      * 2. If 1 cannot be achieved, schedule to the eventually capable server with the lowest
-     * estimated wait time.
-     * 
-     * @param c The client
+     * estimated wait time and no waiting jobs.
+     * 3. If all servers have waiting jobs, default to scheduling to the largest server.
+     * @param c client reference
      */
     private void stage2JOBN(Client c) {
         Job job = c.getLastJob();
@@ -87,9 +84,11 @@ public class SchedulingState implements State {
     /**
      * Steps:
      * 1. Find server instance that job completed on (JCPLServer).
-     * 2. Check all other servers for waiting jobs.
-     * 3. Migrate the first waiting job that can be started immediately on JCPLServer from 1.
-     * @param c
+     * 2. If JCPLServer has waiting jobs, return.
+     * 3. Check all other servers for waiting jobs.
+     * 4. Migrates as many waiting jobs to JCPLServer that can be started immediately until
+     * JCPLS resources run out.
+     * @param c client reference
      */
     private void stage2JCLP(Client c) {
         // JCPL format: JCPL endTime jobID serverType serverID
@@ -152,7 +151,7 @@ public class SchedulingState implements State {
      * Stage 2 - Get the job list of a server <p>
      * Queries ds-sim for all jobs scheduled to a server. <p>
      * Format: jobID jobState submitTIme startTime estRunTime core memory disk
-     * @param c client for communication
+     * @param c client reference
      * @param server we wish to learn about
      * @return A list of jobs on server in format specified above
      */
@@ -177,7 +176,7 @@ public class SchedulingState implements State {
      * Stage 2 <p>
      * Sends GETS message to ds-sim with the specified GETS option (All, Capable, Avail) and adds
      * job details if necessary. Stores the response in a Server List and returns it.
-     * @param c Client
+     * @param c client reference
      * @param getsOption "All", "Capable", "Avail"
      * @param job The job to get resource information if necessary
      * @return The ds-sim servers response as a list of Servers. Null if invalid parameters.
@@ -210,10 +209,13 @@ public class SchedulingState implements State {
      * occur first in the list of servers. Filters the server list if not already done.
      * <p>
      * Sequentially cycles through the set of first largest servers.
-     * @param c
+     * @param c client reference
      */
     private void largestRoundRobin(Client c) {
-        if (!c.getServerFilterStatus()) { getLargestCPUServers(c.getServers()); }
+        if (!c.getServerFilterStatus()) {
+            getLargestCPUServers(c.getServers());
+            c.setFilteredStatus();
+        }
         Job job = c.getLastJob();
         Server target = c.getServers().get((c.getJobCount()-1) % c.getServers().size());
         c.sendMessage("SCHD " + job.getJobID() + " " + target.getName());

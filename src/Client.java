@@ -60,6 +60,10 @@ public class Client {
         return serversFiltered;
     }
 
+    public void setFilteredStatus() {
+        serversFiltered = true;
+    }
+
     public void setDisconnect() {
         connected = false;
     }
